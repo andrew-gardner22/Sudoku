@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sudoku</title>
+   <link rel="icon" type="image/x-icon" href="/images/favicon.png">
+  <style>
+    body { background:#fff; font-family:sans-serif; color:#222; text-align:center; }
+    #settings { margin-bottom: 1rem; }
+    #board {
+      display: grid;
+      margin: auto;
+      background: #333;
+      border: 3px solid #333;
+      box-shadow: 0 2px 16px #0002;
+      width: fit-content;
+      position: relative;
+    }
+    .cell {
+      text-align:center;
+      font-size:1.3rem;
+      border: none;
+      outline: none;
+      box-sizing: border-box;
+      background: #fff;
+      position: relative;
+      z-index: 1;
+      font-family: inherit;
+    }
+    .fixed { background:#eee; font-weight:600; color:#222; }
+    .user { background:#fff; color:#338; }
+    h1 { letter-spacing:1px; }
+    button { margin:1rem 0; padding:0.6rem 1.4rem; font-size:1rem; border:none; border-radius:1.5rem; background:#222; color:#fff; cursor:pointer; }
+    /* Overlay grid lines */
+    #board .grid-line {
+      position: absolute;
+      background: #222;
+      z-index: 2;
+      pointer-events: none;
+    }
+    #board .vline { height: 100%; top: 0; }
+    #board .hline { width: 100%; left: 0; }
+    #board .thin { background: #bbb; opacity: 0.7; z-index: 1; }
+    #board .vthin { height: 100%; top: 0; }
+    #board .hthin { width: 100%; left: 0; }
+    /* Warning */
+    #warning { color: #c00; margin: 1em 0 0.5em; font-weight: bold; }
+    a {
+    color: black;
+    }
+  </style>
+</head>
+<body>
+  <h1>Sudoku</h1>
+  <div id="settings">
+    <label for="size">Grid size:</label>
+    <select id="size">
+      <option value="4">4x4 (Easy)</option>
+      <option value="9" selected>9x9 (Standard)</option>
+      <option value="16">16x16 (Hard)</option>
+    </select>
+    <button onclick="startSudoku()">New Puzzle</button>
+  </div>
+  <div id="warning"></div>
+  <div id="board"></div>
+  <div id="message" style="margin:1.5rem 0 0.5rem"></div>
+  <div style="font-size:0.95rem; color:#888; margin-top:1.5rem;">
+    Infinite puzzles, minimalist UI. <a href="github.com/andrew-gardner22/Sudoku/">Github</a>
+  </div>
+  <script>
+    // Use only numbers for all grid sizes
+    function getSymbols(N) {
+      // For N up to 16, just use "1"..."16", as strings
+      return Array.from({length: N}, (_, i) => (i + 1).toString());
+    }
+    function isValid(board, row, col, val, N, S) {
+      for (let x = 0; x < N; x++)
+        if (board[row][x] === val || board[x][col] === val)
+          return false;
+      const boxRow = Math.floor(row / S) * S, boxCol = Math.floor(col / S) * S;
+      for (let i = 0; i < S; ++i)
+        for (let j = 0; j < S; ++j)
+          if (board[boxRow + i][boxCol + j] === val)
+            return false;
+      return true;
+    }
+    function fillBoard(board, N, S, symbols, pos = 0) {
+      if (pos === N*N) return true;
+      const row = Math.floor(pos / N), col = pos % N;
+      if (board[row][col] !== "") return fillBoard(board, N, S, symbols, pos + 1);
+      let nums = symbols.slice();
+      for (let i = nums.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [nums[i], nums[j]] = [nums[j], nums[i]];
+      }
+      for (let n of nums) {
+        if (isValid(board, row, col, n, N, S)) {
+          board[row][col] = n;
+          if (fillBoard(board, N, S, symbols, pos + 1)) return true;
+          board[row][col] = "";
+        }
+      }
+      return false;
+    }
+    function generatePuzzle(N, S, clues) {
+      const symbols = getSymbols(N);
+      let board = Array.from({length:N},()=>Array(N).fill(""));
+      fillBoard(board, N, S, symbols);
+      let puzzle = board.map(r=>r.slice());
+      let attempts = N*N - clues;
+      while (attempts > 0) {
+        let row = Math.floor(Math.random()*N), col = Math.floor(Math.random()*N);
+        if (puzzle[row][col] !== "") {
+          puzzle[row][col] = "";
+          attempts--;
+        }
+      }
+      return {puzzle, solution: board, symbols};
+    }
+    let cells = [], solution = [], complete = false, N = 9, S = 3, symbols = [];
+    function renderBoard() {
+      const board = document.getElementById('board');
+      board.innerHTML = '';
+      board.style.gridTemplateColumns = `repeat(${N}, min(2.2rem, ${Math.floor(550/N)}px))`;
+      board.style.gridTemplateRows = `repeat(${N}, min(2.2rem, ${Math.floor(550/N)}px))`;
+      for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+        const input = document.createElement('input');
+        input.maxLength = 2;
+        input.inputMode = "numeric";
+        input.pattern = "[0-9]*";
+        input.className = 'cell' + (cells[i][j].fixed ? ' fixed' : ' user');
+        input.style.width = `min(2.2rem, ${Math.floor(550/N)}px)`;
+        input.style.height = `min(2.2rem, ${Math.floor(550/N)}px)`;
+        input.value = cells[i][j].value === "" ? '' : cells[i][j].value;
+        input.disabled = cells[i][j].fixed;
+        input.oninput = e => {
+          let v = e.target.value.replace(/[^0-9]/g, "");
+          // Limit to max symbol for that grid size
+          if (v.length > 0 && (parseInt(v,10) < 1 || parseInt(v,10) > N)) v = "";
+          cells[i][j].value = v;
+          renderBoard();
+          checkComplete();
+        }
+        board.appendChild(input);
+      }
+      // Draw thick grid lines (block/box borders)
+      for (let n = 1; n < N; n++) {
+        if (n % S === 0) {
+          const vline = document.createElement('div');
+          vline.className = 'grid-line vline';
+          vline.style.left = `calc(${n*100/N}% - 1.5px)`;
+          vline.style.width = "3px";
+          vline.style.height = "100%";
+          board.appendChild(vline);
+        } else {
+          const vthin = document.createElement('div');
+          vthin.className = 'grid-line vthin thin';
+          vthin.style.left = `calc(${n*100/N}% - 0.5px)`;
+          vthin.style.width = "1px";
+          vthin.style.height = "100%";
+          board.appendChild(vthin);
+        }
+        if (n % S === 0) {
+          const hline = document.createElement('div');
+          hline.className = 'grid-line hline';
+          hline.style.top = `calc(${n*100/N}% - 1.5px)`;
+          hline.style.height = "3px";
+          hline.style.width = "100%";
+          board.appendChild(hline);
+        } else {
+          const hthin = document.createElement('div');
+          hthin.className = 'grid-line hthin thin';
+          hthin.style.top = `calc(${n*100/N}% - 0.5px)`;
+          hthin.style.height = "1px";
+          hthin.style.width = "100%";
+          board.appendChild(hthin);
+        }
+      }
+    }
+    function checkComplete() {
+      complete = cells.flat().every((c, idx) => c.value === solution[Math.floor(idx/N)][idx%N]);
+      document.getElementById('message').textContent = complete ? "Complete! 🎉" : "";
+    }
+    function startSudoku() {
+      N = parseInt(document.getElementById('size').value, 10);
+      S = Math.sqrt(N);
+      let clues = {4:8,9:28,16:64}[N] || Math.max(2*N, 8);
+      let {puzzle, solution:sol, symbols:symb} = generatePuzzle(N, S, clues);
+      cells = puzzle.map((row,i) => row.map((v,j) => ({value:v, fixed:v!==""})));
+      solution = sol;
+      symbols = symb;
+      complete = false;
+      renderBoard();
+      document.getElementById('message').textContent = "";
+      document.getElementById('warning').textContent = "";
+    }
+    startSudoku();
+    document.getElementById('size').addEventListener('change', startSudoku);
+  </script>
+</body>
+</html>
